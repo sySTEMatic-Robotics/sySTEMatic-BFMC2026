@@ -39,7 +39,7 @@ def main():
         time.sleep(2)
         ser.write('#steer:0;;\r\n'.encode('utf-8'))
         # Ensure motor is stopped
-        ser.write('#speed:0;;\r\n'.encode('utf-8'))
+       # ser.write('#speed:0;;\r\n'.encode('utf-8'))
 
     # 5. Define Processes
     
