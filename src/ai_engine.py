@@ -46,6 +46,10 @@ def yolo_detection_process(frame_queue, result_queue, serial_queue, log_queue,
     ignore_signs_until = 0.0 
     highway_mode_active = False
 
+    current_nav_command = "RIGHT"
+    intersection_turn_active = False
+    intersection_turn_end_time = 0.0
+
     print("AI Engine Started. (Anti-Hang Mode Enabled)")
 
     while True:
@@ -153,18 +157,91 @@ def yolo_detection_process(frame_queue, result_queue, serial_queue, log_queue,
             cv2.putText(annotated_frame, "MODE: HIGHWAY", (10, 120), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
 
-        # 5. LANE CENTROID
+      # 5. LANE CENTROID & INTERSECTION NAVIGATION
         cX = target_cX
         if best_lane_detection is not None and best_lane_detection.masks is not None:
             try:
-                mask_pts = best_lane_detection.masks.xy[0]
-                contour = mask_pts.astype(np.int32).reshape(-1, 1, 2)
-                M = cv2.moments(contour)
+                # 1. Grab mask and MUST USE .copy() so we don't corrupt the original tensor
+                mask_array = best_lane_detection.masks.data[0].cpu().numpy().copy()
+                h, w = mask_array.shape
+                
+                # 2. Intersection Trigger check
+                row_idx = int(h * 0.7)
+                road_width = np.count_nonzero(mask_array[row_idx, :])
+                
+                # Trigger ONLY if not already turning
+                if not intersection_turn_active and road_width > (w * 0.85):
+                    print(f"!!! ENTERING INTERSECTION: TURNING {current_nav_command} !!!")
+                    intersection_turn_active = True
+                    
+                    # --- DYNAMIC TURN TIMERS ---
+                    if current_nav_command == "RIGHT":
+                        turn_duration = 2.5  # Short, sharp turn
+                    elif current_nav_command == "LEFT":
+                        turn_duration = 8  # Wide turn, needs more time
+                    else: # STRAIGHT
+                        turn_duration = 2.0  # Just enough to cross the wide part
+                        
+                    intersection_turn_end_time = now + turn_duration 
+
+                # Check if the turn timer is up
+                if intersection_turn_active and now > intersection_turn_end_time:
+                    intersection_turn_active = False
+
+                # 3. APPLY THE DIRECTIONAL ERASER (If actively turning)
+                if intersection_turn_active and current_nav_command:
+                    
+                    # Force slow speed during the maneuver for safety
+                    current_loop_speed = SPEED_SLOW 
+                    
+                    if current_nav_command == "RIGHT":
+                        mask_array[:, :int(w * 0.5)] = 0  # Black out Left half
+                        mask_array[int(h * 0.6):, :] = 0  # Black out Bottom
+                        cv2.putText(annotated_frame, "TURNING: RIGHT (LOCKED)", (10, 150), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+                        
+                    elif current_nav_command == "LEFT":
+                        # --- PHASED LEFT TURN: Pull forward first, then turn ---
+                        time_remaining = intersection_turn_end_time - now
+                        
+                        # Total time is 8.0s. If time remaining is > 5.5s, we are in the first 2.5 seconds.
+                        if time_remaining > 3:
+                            print("Left turn. Going straight")
+                            # PHASE 1: Go STRAIGHT to pull into the intersection
+                            mask_array[:, :int(w * 0.3)] = 0  
+                            mask_array[:, int(w * 0.7):] = 0  
+                            mask_array[int(h * 0.6):, :] = 0
+                            cv2.putText(annotated_frame, "TURNING: LEFT (PULL FWD)", (10, 150), 
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+                        else:
+                            print("Left turn. Going left")
+                            # PHASE 2: Execute the LEFT turn
+                            mask_array[:, int(w * 0.42):] = 0  # Black out right 60% of screen
+                            mask_array[int(h * 0.6):, :] = 0  # Black out Bottom
+                            
+                            target_cX = 220  # Shift target to force harder left steering
+                            
+                            cv2.putText(annotated_frame, "TURNING: LEFT (LOCKED)", (10, 150), 
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+                        
+                    elif current_nav_command == "STRAIGHT":
+                        mask_array[:, :int(w * 0.3)] = 0  
+                        mask_array[:, int(w * 0.7):] = 0  
+                        mask_array[int(h * 0.6):, :] = 0
+                        cv2.putText(annotated_frame, "GOING: STRAIGHT (LOCKED)", (10, 150), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+
+                # 4. Calculate Centroid
+                mask_uint8 = (mask_array * 255).astype(np.uint8)
+                M = cv2.moments(mask_uint8)
+                
                 if M["m00"] != 0:
                     cX = int(M["m10"] / M["m00"])
                     cY = int(M["m01"] / M["m00"])
-                    cv2.circle(annotated_frame, (cX, cY), 5, (0, 255, 0), -1)
-            except Exception:
+                    # Draw a distinct pink dot so you can see the target moving into the turn
+                    cv2.circle(annotated_frame, (cX, cY), 8, (255, 0, 255), -1)
+                    
+            except Exception as e:
                 pass
 
         # 6. EXECUTE CONTROL

@@ -335,14 +335,13 @@ def action_stop():
         # HAMMER THE BRAKES: Send stop command multiple times
         # We do this in a loop to ensure it's the very last thing the serial port sees
         for _ in range(3):
-            global_serial_q.put('#speed:0;;\r\n')
             global_serial_q.put('#brake:0;;\r\n') # Assuming 0 means 'engage' in your protocol? 
-                                                   # If 0 means 'release', change this to 1 or 100!
+                                                 # If 0 means 'release', change this to 1 or 100!
             time.sleep(0.2) 
         
         # CRITICAL: Wait for the Serial Process to actually send it.
         # 1 second is often too short if the CPU is busy processing video.
-        time.sleep(3.0) 
+        time.sleep(2.0) 
         
         print("Kill signal sent.")
         # Now it is safe to kill

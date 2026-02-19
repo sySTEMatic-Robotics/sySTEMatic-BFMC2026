@@ -36,8 +36,9 @@ def main():
         print("Calibrating Steering...")
         # Send initial calibration commands (adjust as needed for your car)
         ser.write('#kl:30;;\r\n'.encode('utf-8'))
+        time.sleep(0.1)
         ser.write("#battery:1;;\r\n".encode('utf-8'))
-        time.sleep(2)
+        time.sleep(0.5)
         ser.write('#steer:0;;\r\n'.encode('utf-8'))
         # Ensure motor is stopped
        # ser.write('#speed:0;;\r\n'.encode('utf-8'))
