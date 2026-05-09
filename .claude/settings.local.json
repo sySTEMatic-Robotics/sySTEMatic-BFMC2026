@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:bosch-future-mobility-challenge-documentation.readthedocs-hosted.com)"
+    ]
+  }
+}
